@@ -166,6 +166,8 @@ int main(int argc, char *argv[]) {
             {"gdbserver", 0, 0, 'g'},
             {"gdb-debug", 0, 0, 'G'},
             {"debug-gdb", 0, 0, 'G'},
+            {"gdb-stdin", 0, 0, 'H'},
+            {"gdb-pipe", 0, 0, 'H'},
             {"maxruntime", 1, 0, 'm'},
             {"nogdbwait", 0, 0, 'n'},
             {"trace", 1, 0, 't'},
@@ -279,6 +281,13 @@ int main(int argc, char *argv[]) {
                 gdbserver_flag = 1;
                 break;
             
+            case 'H':  // launched from GDB: "target remote | simulavr --gdb-stdin"
+                if (global_verbose_on)
+                    cout << "Running with GDB on stdin" << endl;
+                gdbserver_flag=1;
+                global_gdbserver_port = -1;
+                break;
+
             case 'p':
                 if(!StringToLong( optarg, &global_gdbserver_port, NULL, 10)) {
                     cerr << "GDB Server Port is not a number" << endl;

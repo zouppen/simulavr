@@ -50,6 +50,7 @@ using namespace std;
 #include "gdb.h"
 
 #ifdef _MSC_VER
+#  include <io.h>
 #  define snprintf _snprintf
 #endif
 
@@ -97,6 +98,11 @@ GdbServerSocketMingW::GdbServerSocketMingW(int port): _socket(0), _conn(0) {
     sockaddr_in sa;
     
     Start();
+    if(port == -1) {
+        // GDB is connected on stdin/stdout, no TCP.
+        _conn = -1;
+        _socket = INVALID_SOCKET;
+    } else {
     _socket = socket(AF_INET, SOCK_STREAM, 0);
     if(_socket == INVALID_SOCKET)
         avr_error("Couldn't create socket: INVALID_SOCKET");
@@ -113,6 +119,7 @@ GdbServerSocketMingW::GdbServerSocketMingW(int port): _socket(0), _conn(0) {
     }
     
     listen(_socket, 1); // only 1 connection at time
+    }
 }
 
 GdbServerSocketMingW::~GdbServerSocketMingW() {
@@ -129,17 +136,26 @@ void GdbServerSocketMingW::Close(void) {
 
 int GdbServerSocketMingW::ReadByte(void) {
     char buf[1];
-    int rv = recv(_conn, buf, 1, 0);
+    _doserrno = 0;
+    int rv = (_conn != -1) ? recv( _conn, buf, 1, 0 ) : _read(0, buf, 1);
+    int nErr = _doserrno;
+    bool asfsaf = (nErr == EBADF);
+    char * sErr = strerror(nErr);
     if(rv <= 0)
         return -1;
     return buf[0];
 }
 
 void GdbServerSocketMingW::Write(const void* buf, size_t count) {
-    send(_conn, (const char *)buf, count, 0);
+    if(_conn != -1)
+        send(_conn, (const char *)buf, count, 0);
+    else
+        _write(1, buf, count);
 }
 
 void GdbServerSocketMingW::SetBlockingMode(int mode) {
+    if(_conn == INVALID_SOCKET)
+        return;  // GDB on stdin/stdout, non-blocking not possible on Windows
     u_long arg = 1;
     if(mode)
         arg = 0;
@@ -147,8 +163,9 @@ void GdbServerSocketMingW::SetBlockingMode(int mode) {
     if(res)
         avr_warning( "fcntl failed: %d\n", WSAGetLastError() );
 }
-
 bool GdbServerSocketMingW::Connect(void) {
+    if(_socket==INVALID_SOCKET)
+        return true;  // GDB is already connected to stdin/stdout
     _conn = accept(_socket, 0, 0);
     if(_conn == INVALID_SOCKET) {
         int rc = WSAGetLastError();
@@ -169,6 +186,10 @@ void GdbServerSocketMingW::CloseConnection(void) {
 GdbServerSocketUnix::GdbServerSocketUnix(int port) {
     conn = -1;        //no connection opened
     
+    if(port == -1) {
+        // GDB is connected on stdin/stdout, no TCP.
+        conn = -1;
+    } else {
     if((sock = socket(PF_INET, SOCK_STREAM, 0)) < 0)
         avr_error("Can't create socket: %s", strerror(errno));
 
@@ -188,6 +209,7 @@ GdbServerSocketUnix::GdbServerSocketUnix(int port) {
 
     if(listen(sock, 1) < 0)
         avr_error("Can not listen on socket: %s", strerror(errno));
+    }
 }
 
 GdbServerSocketUnix::~GdbServerSocketUnix() {
@@ -205,7 +227,7 @@ int GdbServerSocketUnix::ReadByte(void) {
     int cnt = MAX_READ_RETRY;
 
     while(cnt--) {
-        res = read(conn, &c, 1);
+        res = (conn != -1) ? read(conn, &c, 1) : read(0, &c, 1);
         if(res < 0) {
             if (errno == EAGAIN)
                 /* fd was set to non-blocking and no data was available */
@@ -229,7 +251,7 @@ int GdbServerSocketUnix::ReadByte(void) {
 void GdbServerSocketUnix::Write(const void* buf, size_t count) {
     int res;
 
-    res = write(conn, buf, count);
+    res = (conn != -1) ? write(conn, buf, count) : write(1, buf, count);
 
     /* FIXME: should we try and catch interrupted system calls here? */
     if(res < 0)
@@ -305,8 +327,10 @@ GdbServer::GdbServer(AvrDevice *c, int _port, int debug, int _waitForGdbConnecti
     server = new GdbServerSocketUnix(_port);
 #endif
 
-    fprintf(stderr, "Waiting on port %d for gdb client to connect...\n", _port);
-
+    if(_port != -1)
+        fprintf(stderr, "Waiting on port %d for gdb client to connect...\n", _port);
+    else
+        fprintf(stderr, "Using gdb client in stdin/stdout.\n");
 }
 
 //make the instance of static list of all gdb servers here

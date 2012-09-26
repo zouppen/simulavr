@@ -170,6 +170,7 @@ void SystemConsoleHandler::vffatal(const char *file, int line, const char *fmt, 
     va_end(ap);
     if(useExitAndAbort) {
         *wrnStream << "\n" << messageStringBuffer << "\n" << std::endl;
+        wrnStream->flush();
         exit(1);
     } else {
         throw (char const*)messageStringBuffer;
